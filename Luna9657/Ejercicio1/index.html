@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Fausto</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-[#ffe8d6] flex flex-col items-center min-h-screen pt-12 font-sans text-gray-800">
+    <div class="mb-6 bg-[#e6ccb2] p-6 rounded-xl shadow-lg border border-[#ddbea9] w-full max-w-md text-center">
+        <h2 class="text-2xl font-bold mb-4 text-[#6b705c]">Fausto en el laberinto</h2>
+        
+        <label class="block mb-2 text-sm font-medium text-[#6b705c] text-left">Sube un archivo .in distinto:</label>
+        
+        <input type="file" id="archivoEntrada" accept=".in,.txt" class="hidden">
+        
+        <label for="archivoEntrada" 
+            class="flex justify-center items-center w-[50%] bg-[#6b705c] hover:bg-[#a5a58d] text-white text-sm font-bold py-3 px-4 rounded-lg shadow-md cursor-pointer transition-colors mb-6">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+            Seleccionar archivo
+        </label>
+                    
+        <button id="boton-ejecutar" class="w-full bg-[#6b705c] hover:bg-[#a5a58d] text-white font-bold py-3 px-6 rounded-lg shadow-md">
+            Busca el mejor camino
+        </button>
+        <p class="text-xs text-[#6b705c] mt-2">Se usará Fausto.in por defecto</p>
+    </div>
+
+    <div id="resultados" class="mb-4 text-lg font-bold"></div>
+    
+    <div class="flex flex-col md:flex-row gap-8 items-start pb-12">
+        <div id="contenedor-laberinto" class="grid gap-[2px] bg-gray-800 p-[2px] border-4 border-gray-800 rounded-md shadow-xl">
+        </div>
+        <div id="caja-salida" class="hidden flex-col">
+            <h3 class="text-sm font-bold text-gray-600 mb-2 uppercase tracking-wide">Salida del Programa</h3>
+            <pre id="salida-texto" class="bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-md shadow-inner min-w-[150px] min-h-[200px] overflow-y-auto mb-4"></pre>
+            
+            <button id="boton-descargar" class="bg-[#718355] hover:bg-[#87986a] text-white font-bold py-2 px-4 rounded shadow transition-colors text-sm">
+                Descargar fausto.out
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Carga del laberinto
+        class Estado {
+            constructor(fila, columna, rutaAnterior = []) {
+                this.fila = fila;
+                this.columna = columna;
+                this.ruta = [...rutaAnterior, [fila, columna]];
+            }
+        }
+
+        class BusquedaLaberinto {
+            constructor() {
+                this.matriz = [];
+                this.visitados = new Set();
+            }
+
+            cargarLaberinto(textoLaberinto) {
+                const lineas = textoLaberinto.trim().split('\n').map(l => l.trim());
+                this.filas = lineas.length;
+                this.columnas = lineas[0].length;
+                this.matriz = [];
+                this.inicio = null;
+                this.meta = null;
+
+                for (let i = 0; i < this.filas; i++) {
+                    let filaActual = [];
+                    for (let j = 0; j < this.columnas; j++) {
+                        let caracter = lineas[i][j];
+                        filaActual.push(caracter);
+                        if (caracter === '*') this.inicio = { fila: i, columna: j };
+                        else if (caracter === 'o') this.meta = { fila: i, columna: j };
+                    }
+                    this.matriz.push(filaActual); // Al terminar de dibujar la linea se pega en la matriz
+                }
+            }
+
+            esMovimientoValido(f, c) {
+                if (f < 0 || f >= this.filas || c < 0 || c >= this.columnas) return false;
+                if (this.matriz[f][c] === '#') return false;
+                if (this.visitados.has(`${f},${c}`)) return false;
+                return true;
+            }
+
+            resolver() {
+                if (!this.inicio || !this.meta) return null;
+
+                const direcciones = [[-1, 0], [1, 0], [0, 1], [0, -1]];
+                let cola = [new Estado(this.inicio.fila, this.inicio.columna)];
+                this.visitados.add(`${this.inicio.fila},${this.inicio.columna}`);
+
+                while (cola.length > 0) {
+                    let actual = cola.shift();
+
+                    if (actual.fila === this.meta.fila && actual.columna === this.meta.columna) {
+                        return actual.ruta; 
+                    }
+
+                    for (let dir of direcciones) {
+                        let nFila = actual.fila + dir[0];
+                        let nCol = actual.columna + dir[1];
+
+                        if (this.esMovimientoValido(nFila, nCol)) {
+                            this.visitados.add(`${nFila},${nCol}`);
+                            cola.push(new Estado(nFila, nCol, actual.ruta));
+                        }
+                    }
+                }
+                return null; 
+            }
+        }
+
+        // Interfaz
+        let textoSalidaGlobal = "";
+
+        document.getElementById('boton-ejecutar').addEventListener('click', async function() {
+            const inputArchivo = document.getElementById('archivoEntrada');
+            
+            // Si el archivo fue subido
+            if (inputArchivo.files.length > 0) {
+                const archivo = inputArchivo.files[0];
+                const lector = new FileReader();
+                lector.onload = function(e) {
+                    procesarYDibujar(e.target.result);
+                };
+                lector.readAsText(archivo);
+            } 
+            // Precargar fausto
+            else {
+                try {
+                    const respuesta = await fetch('fausto.in');
+                    
+                    if (!respuesta.ok) {
+                        throw new Error('Archivo no encontrado');
+                    }
+                    
+                    const contenidoLocal = await respuesta.text();
+                    procesarYDibujar(contenidoLocal);
+
+                } catch (error) {
+                    alert("No se pudo cargar Fausto.in \n Por favor, seleccione el archivo de forma manual(se encuentra en la propia carpeta del ejercicio).");
+                    console.error(error);
+                }
+            }
+        });
+
+        function procesarYDibujar(texto) {
+            const buscador = new BusquedaLaberinto();
+            buscador.cargarLaberinto(texto);
+            const rutaSolucion = buscador.resolver();
+            
+            const contenedor = document.getElementById('contenedor-laberinto');
+            const divResultados = document.getElementById('resultados');
+            const cajaSalida = document.getElementById('caja-salida');
+            const salidaTexto = document.getElementById('salida-texto');
+            
+            contenedor.style.gridTemplateColumns = `repeat(${buscador.columnas}, 40px)`;
+            contenedor.innerHTML = ''; 
+
+            const celdasSolucion = new Set(rutaSolucion ? rutaSolucion.map(p => `${p[0]},${p[1]}`) : []);
+
+            for (let i = 0; i < buscador.filas; i++) {
+                for (let j = 0; j < buscador.columnas; j++) {
+                    const celda = document.createElement('div');
+                    const clasesBase = ['w-[40px]', 'h-[40px]', 'flex', 'justify-center', 'items-center', 'font-bold', 'rounded-sm', 'transition-all', 'duration-300'];
+                    celda.classList.add(...clasesBase);
+                    
+                    let caracter = buscador.matriz[i][j];
+                    let esSolucion = celdasSolucion.has(`${i},${j}`);
+
+                    if (caracter === '#') {
+                        celda.classList.add('bg-gray-600', 'shadow-inner');
+                    } else if (caracter === '*') {
+                        celda.classList.add('bg-emerald-500', 'text-white', 'text-[10px]', 'shadow-md');
+                        celda.innerText = 'Fausto';
+                    } else if (caracter === 'o') {
+                        celda.classList.add('bg-[#ecb176]', 'text-white', 'text-[12px]', 'shadow-md');
+                        celda.innerText = 'Salida';
+                    } else {
+                        if (esSolucion && caracter !== '*' && caracter !== 'o') {
+                            celda.classList.add('bg-blue-600', 'text-white');
+                        } else {
+                            celda.classList.add('bg-[#ff8fa3]');
+                        }
+                    }
+                    contenedor.appendChild(celda);
+                }
+            }
+
+            if (rutaSolucion) {
+                let movimientos = rutaSolucion.length - 1;
+                divResultados.innerHTML = `<span class="text-white bg-[#c1121f] px-4 py-2 rounded-full border border-[#780000]"> Salida encontrada en ${movimientos} movimientos </span>`;
+                
+                textoSalidaGlobal = `${movimientos}\n`;
+                rutaSolucion.forEach(paso => {
+                    textoSalidaGlobal += `${paso[0]} ${paso[1]}\n`;
+                });
+                
+                cajaSalida.classList.remove('hidden');
+                cajaSalida.classList.add('flex');
+                salidaTexto.innerText = textoSalidaGlobal;
+
+            } else {
+                divResultados.innerHTML = `<span class="text-rose-600 bg-rose-100 px-4 py-2 rounded-full border border-rose-300">No hay salida posible.</span>`;
+                cajaSalida.classList.add('hidden');
+                cajaSalida.classList.remove('flex');
+                salidaTexto.innerText = '';
+                textoSalidaGlobal = '';
+            }
+        }
+
+        // Archivo Fausto.out
+        document.getElementById('boton-descargar').addEventListener('click', function() {
+            if (!textoSalidaGlobal) return;
+
+            const blob = new Blob([textoSalidaGlobal], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'fausto.out';
+            
+            document.body.appendChild(a);
+            a.click();
+            
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        });
+    </script>
+</body>
+</html>
